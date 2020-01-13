@@ -440,6 +440,7 @@ namespace tnqvm {
             assert(destroyed);
         }
         m_gateTensorBodies.clear();
+        m_appendedGateTensors.clear();
         m_tensorIdCounter = 0;
         TensorNetwork emptyTensorNet;
         m_tensorNetwork = emptyTensorNet;
@@ -752,11 +753,6 @@ namespace tnqvm {
         ); 
     }
 
-    ExatnVisitor::ObservableTerm::ObservableTerm(const std::vector<std::shared_ptr<Instruction>>& in_operatorsInProduct, const std::complex<double>& in_coeff /*= 1.0*/):
-        coefficient(in_coeff),
-        operators(in_operatorsInProduct)
-    {}
-
     std::complex<double> ExatnVisitor::observableExpValCalc(std::shared_ptr<AcceleratorBuffer>& in_buffer, std::shared_ptr<CompositeInstruction>& in_function, const std::vector<ObservableTerm>& in_observableExpression)
     {
         if (!m_appendedGateTensors.empty() || !m_gateTensorBodies.empty())
@@ -802,6 +798,13 @@ namespace tnqvm {
 
     std::complex<double> ExatnVisitor::evaluateTerm(const std::vector<std::shared_ptr<Instruction>>& in_observableTerm) 
     {
+        if (in_observableTerm.empty())
+        {
+            // Bypass the calculation if operator list is empty,
+            // e.g. it's just a constant offset.
+            return 1.0;
+        }
+        
         std::complex<double> result = 0.0;
         // Save/cache the tensor network
         const auto cachedTensor = m_tensorNetwork;
@@ -819,6 +822,7 @@ namespace tnqvm {
         applyInverse();        
         
         {
+            const auto start = std::chrono::steady_clock::now();
             if(exatn::evaluateSync(m_tensorNetwork))
             {
                 exatn::sync();
@@ -829,7 +833,12 @@ namespace tnqvm {
                 {
                     result = *body_ptr;
                 }                
-            }           
+            }
+            const auto end = std::chrono::steady_clock::now();
+            std::cout << "Evaluate term elapsed time in seconds : " 
+            << std::chrono::duration_cast<std::chrono::seconds>(end - start).count()
+            << " secs \n";      
+            std::cout << "Tensor network size: " << m_tensorNetwork.getNumTensors() << "\n";      
         }
 
         m_isAppendingCircuitGates = true;

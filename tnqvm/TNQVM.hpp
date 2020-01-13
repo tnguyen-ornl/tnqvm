@@ -99,8 +99,11 @@ public:
       if (nbShots > 1 && backendName == "itensor-mps") {
         xacc::warning("Multi-shot simulation is not available for 'itensor-mps' backend. This option will be ignored. \nPlease use 'exatn' backend if you want to run multi-shot simulation.");
       }
-    }    
+    }
+  
+    visitor = xacc::getService<TNQVMVisitor>(getVisitorName())->clone();
   }
+
   const std::vector<std::string> configurationKeys() override { return {}; }
 //   const std::string getSignature() override {return name()+":";}
 
@@ -122,6 +125,15 @@ public:
   }
 
   const std::string& getVisitorName() const { return backendName; }
+  double getExpectationValue(std::shared_ptr<AcceleratorBuffer>& buffer, std::shared_ptr<CompositeInstruction>& function, const ObservableExpr& observable) {
+    if (visitor) {
+      return visitor->getExpectationValue(buffer, function, observable);
+    }
+    else {
+      xacc::error("TNQVM visitor backend has not been initialized!\n");
+      return 0.0;
+    }    
+  }
   
   virtual ~TNQVM() {}
 

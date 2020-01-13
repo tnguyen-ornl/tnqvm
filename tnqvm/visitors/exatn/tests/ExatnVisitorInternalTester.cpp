@@ -102,12 +102,12 @@ TEST(ExatnVisitorInternalTester, testTensorExpValCalc) {
         0.0
     };
      
-    const auto angles = linspace(-xacc::constants::pi, xacc::constants::pi, 20);
+    const auto angles = xacc::linspace(-xacc::constants::pi, xacc::constants::pi, 20);
     auto gateRegistry = xacc::getIRProvider("quantum");
     auto x0 = gateRegistry->createInstruction("X", std::vector<std::size_t>{0});
     auto x1 = gateRegistry->createInstruction("X", std::vector<std::size_t>{1});
     // Observable term: X0X1
-    const ExatnVisitor::ObservableTerm term1({x0, x1});
+    const ObservableTerm term1({x0, x1});
     
     for (size_t i = 0; i < angles.size(); ++i) 
     {
@@ -142,11 +142,11 @@ TEST(ExatnVisitorInternalTester, testTensorExpValCalc) {
     auto z1 = gateRegistry->createInstruction("Z", std::vector<std::size_t>{1});
     
     // Observable: E = 5.907 - 2.1433 X0X1 - 2.1433 Y0Y1 + .21829 Z0 - 6.125 Z1
-    const ExatnVisitor::ObservableTerm term0({}, 5.907);
-    const ExatnVisitor::ObservableTerm term1({x0, x1}, -2.1433);
-    const ExatnVisitor::ObservableTerm term2({y0, y1}, -2.1433);
-    const ExatnVisitor::ObservableTerm term3({z0}, 0.21829);
-    const ExatnVisitor::ObservableTerm term4({z1}, -6.125);
+    const ObservableTerm term0({}, 5.907);
+    const ObservableTerm term1({x0, x1}, -2.1433);
+    const ObservableTerm term2({y0, y1}, -2.1433);
+    const ObservableTerm term3({z0}, 0.21829);
+    const ObservableTerm term4({z1}, -6.125);
     // Theta -> Energy data (from VQE run using Pauli Observable)
     std::vector<std::pair<double, double>> expectedResults = 
     {

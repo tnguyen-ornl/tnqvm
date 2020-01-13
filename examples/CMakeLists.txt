@@ -3,3 +3,7 @@ add_subdirectory(VQE)
 add_subdirectory(teleport)
 add_subdirectory(openmp_kernels)
 add_subdirectory(multiple_visitors)
+
+if (EXATN_DIR)
+    add_subdirectory(ExaTN_VQE_ASwap)
+endif()

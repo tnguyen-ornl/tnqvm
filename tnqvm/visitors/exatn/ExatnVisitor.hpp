@@ -228,16 +228,13 @@ namespace tnqvm {
         // Advance API (based on unique capabilities of ExaTN/ExaTensor):
         // (1) Calculate the expectation value for an arbitrary observable operator
         // without explicitly evaluate the state vector.
-        // i.e. get the result of `<psi| Hamiltonian |psi>` for an arbitrary Hamiltonian.
-        // The Hamiltonian must be expressed as a sum of products of gates (with a complex coefficient for each term):
-        // e.g. a1*Z1Z2 + a2*X0X1 + .. + Y2Y3, etc.
-        struct ObservableTerm
-        {
-            ObservableTerm(const std::vector<std::shared_ptr<Instruction>>& in_operatorsInProduct, const std::complex<double>& in_coeff = 1.0);
-            std::complex<double> coefficient;
-            std::vector<std::shared_ptr<Instruction>> operators;
-        };
         // Note: the composite function is the *ORIGINAL* circuit (aka the ansatz), i.e. no change-of-basis or measurement is required.
+        double getExpectationValue(std::shared_ptr<AcceleratorBuffer>& buffer, std::shared_ptr<CompositeInstruction>& function, const ObservableExpr& in_observable) override {
+            const auto result = observableExpValCalc(buffer, function, in_observable);
+            // TODO: we should warn if the imaginary part is non-zero.
+            return result.real();
+        }
+        
         std::complex<double> observableExpValCalc(std::shared_ptr<AcceleratorBuffer>& in_buffer, std::shared_ptr<CompositeInstruction>& in_function, const std::vector<ObservableTerm>& in_observableExpression); 
         
 
