@@ -125,7 +125,7 @@ public:
   }
 
   const std::string& getVisitorName() const { return backendName; }
-  double getExpectationValue(std::shared_ptr<AcceleratorBuffer>& buffer, std::shared_ptr<CompositeInstruction>& function, const ObservableExpr& observable) {
+  double getExpectationValue(std::shared_ptr<AcceleratorBuffer>& buffer, std::shared_ptr<CompositeInstruction>& function, const xacc::quantum::PauliOperator& observable) {
     if (visitor) {
       return visitor->getExpectationValue(buffer, function, observable);
     }

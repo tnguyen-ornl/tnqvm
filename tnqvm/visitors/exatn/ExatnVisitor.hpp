@@ -45,6 +45,26 @@ using namespace xacc::quantum;
 using TensorFunctor = talsh::TensorFunctor<exatn::Identifiable>;
 
 namespace tnqvm {
+
+    // Struct described an observable term (Pauli operators) for expectation value calculation.
+    // i.e. get the result of `<psi| Hamiltonian |psi>` for an arbitrary Hamiltonian.
+    // The Hamiltonian must be expressed as a sum of products of gates (with a complex coefficient for each term):
+    // e.g. a1*Z1Z2 + a2*X0X1 + .. + Y2Y3, etc.
+    struct ObservableTerm
+    {
+        ObservableTerm(const std::vector<std::shared_ptr<Instruction>>& in_operatorsInProduct, const std::complex<double>& in_coeff = 1.0):
+        coefficient(in_coeff),
+        operators(in_operatorsInProduct)
+        {}
+
+        std::complex<double> coefficient;
+        std::vector<std::shared_ptr<Instruction>> operators;
+    };
+    // Typedef for the whole Hamiltonian, i.e. a vector of ObservableTerms
+    using ObservableExpr =  std::vector<ObservableTerm>;   
+
+    ObservableExpr generateObservableExpr(const xacc::quantum::PauliOperator& in_pauliObservable);
+    
     // Simple struct to identify a concrete quantum gate instance,
     // For example, parametric gates, e.g. Rx(theta), will have an instance for each value of theta
     // that is used to instantiate the gate matrix.
@@ -229,8 +249,8 @@ namespace tnqvm {
         // (1) Calculate the expectation value for an arbitrary observable operator
         // without explicitly evaluate the state vector.
         // Note: the composite function is the *ORIGINAL* circuit (aka the ansatz), i.e. no change-of-basis or measurement is required.
-        double getExpectationValue(std::shared_ptr<AcceleratorBuffer>& buffer, std::shared_ptr<CompositeInstruction>& function, const ObservableExpr& in_observable) override {
-            const auto result = observableExpValCalc(buffer, function, in_observable);
+        double getExpectationValue(std::shared_ptr<AcceleratorBuffer>& buffer, std::shared_ptr<CompositeInstruction>& function, const xacc::quantum::PauliOperator& in_observable) override {
+            const auto result = observableExpValCalc(buffer, function, generateObservableExpr(in_observable));
             // TODO: we should warn if the imaginary part is non-zero.
             return result.real();
         }

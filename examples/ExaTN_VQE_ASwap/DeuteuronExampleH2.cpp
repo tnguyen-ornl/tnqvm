@@ -32,6 +32,8 @@
 #include "TNQVM.hpp"
 #include <chrono>
 #include <unistd.h>
+#include "xacc_observable.hpp"
+#include "PauliOperator.hpp"
 
 int main (int argc, char** argv) {
     using namespace tnqvm;
@@ -42,27 +44,13 @@ int main (int argc, char** argv) {
 	auto qpu = xacc::getAccelerator("tnqvm", { std::make_pair("tnqvm-visitor", "exatn") });
 	auto optimizer = xacc::getOptimizer("nlopt");
     
-    const auto tnqvmAccelerator = std::static_pointer_cast<tnqvm::TNQVM>(qpu);
-    
-    auto gateRegistry = xacc::getIRProvider("quantum");
-    auto x0 = gateRegistry->createInstruction("X", std::vector<std::size_t>{0});
-    auto x1 = gateRegistry->createInstruction("X", std::vector<std::size_t>{1});   
-     
-    auto y0 = gateRegistry->createInstruction("Y", std::vector<std::size_t>{0});
-    auto y1 = gateRegistry->createInstruction("Y", std::vector<std::size_t>{1});
-    
-    auto z0 = gateRegistry->createInstruction("Z", std::vector<std::size_t>{0});
-    auto z1 = gateRegistry->createInstruction("Z", std::vector<std::size_t>{1});
-    
-    // Observable: E = 5.907 - 2.1433 X0X1 - 2.1433 Y0Y1 + .21829 Z0 - 6.125 Z1
-    const ObservableTerm term0({}, 5.907);
-    const ObservableTerm term1({x0, x1}, -2.1433);
-    const ObservableTerm term2({y0, y1}, -2.1433);
-    const ObservableTerm term3({z0}, 0.21829);
-    const ObservableTerm term4({z1}, -6.125);
+    auto H_N_2 = xacc::quantum::getObservable(
+      "pauli", std::string("5.907 - 2.1433 X0X1 "
+                           "- 2.1433 Y0Y1"
+                           "+ .21829 Z0 - 6.125 Z1"));
 
-    // Full observable:
-    const ObservableExpr observableOperator { term0, term1, term2, term3, term4 };
+    const auto pauliObservable = std::static_pointer_cast<xacc::quantum::PauliOperator>(H_N_2);    
+    const auto tnqvmAccelerator = std::static_pointer_cast<tnqvm::TNQVM>(qpu);
 
     // ASWAP with 2 qubits (orbitals) and 1 particle (electron)
     xacc::qasm(R"(
@@ -82,7 +70,7 @@ int main (int argc, char** argv) {
         const auto start = std::chrono::steady_clock::now();
         
         auto evaled = ansatz->operator()(x);
-        const double expVal = tnqvmAccelerator->getExpectationValue(buffer, evaled, observableOperator);
+        const double expVal = tnqvmAccelerator->getExpectationValue(buffer, evaled, *pauliObservable);
         const auto end = std::chrono::steady_clock::now();
 
         // Logging

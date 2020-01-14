@@ -37,25 +37,13 @@
 
 using namespace xacc;
 using namespace xacc::quantum;
+namespace xacc{
+  namespace quantum {
+    class PauliOperator;
+  }
+}
 
 namespace tnqvm {
-// Struct described an observable term (Pauli operators) for expectation value calculation.
-// i.e. get the result of `<psi| Hamiltonian |psi>` for an arbitrary Hamiltonian.
-// The Hamiltonian must be expressed as a sum of products of gates (with a complex coefficient for each term):
-// e.g. a1*Z1Z2 + a2*X0X1 + .. + Y2Y3, etc.
-struct ObservableTerm
-{
-    ObservableTerm(const std::vector<std::shared_ptr<Instruction>>& in_operatorsInProduct, const std::complex<double>& in_coeff = 1.0):
-      coefficient(in_coeff),
-      operators(in_operatorsInProduct)
-    {}
-
-    std::complex<double> coefficient;
-    std::vector<std::shared_ptr<Instruction>> operators;
-};
-// Typedef for the whole Hamiltonian, i.e. a vector of ObservableTerms
-using ObservableExpr =  std::vector<ObservableTerm>;    
-
 class TNQVMVisitor : public AllGateVisitor, public OptionsProvider,
                      public xacc::Cloneable<TNQVMVisitor> {
 public:
@@ -63,10 +51,10 @@ public:
   virtual const double
   getExpectationValueZ(std::shared_ptr<CompositeInstruction> function) = 0;
 
-  // Compute the expectation value of an observable (e.g. energy from Hamiltonian)
+  // Compute the expectation value of a Pauli observable (e.g. energy from Hamiltonian)
   // Tensor processing backends of TNQVM can use tensor contraction to compute this value efficiently (in terms of memory)
   // Note: not all TNQVM backend has method implemented.
-  virtual double getExpectationValue(std::shared_ptr<AcceleratorBuffer>& buffer, std::shared_ptr<CompositeInstruction>& function, const ObservableExpr& in_observable) {
+  virtual double getExpectationValue(std::shared_ptr<AcceleratorBuffer>& buffer, std::shared_ptr<CompositeInstruction>& function, const xacc::quantum::PauliOperator& in_observable) {
     throw std::runtime_error(this->name() + " backend does not support direct observable expectation calculation.\n");
   }
 

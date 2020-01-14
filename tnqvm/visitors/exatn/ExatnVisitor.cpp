@@ -43,6 +43,7 @@
 #include <chrono> 
 #include <functional>
 #include <unordered_set>
+#include "PauliOperator.hpp"
 
 namespace {
     // Helper to construct qubit tensor name:
@@ -99,7 +100,28 @@ namespace {
     };
 }
 
-namespace tnqvm {    
+namespace tnqvm {   
+
+    ObservableExpr generateObservableExpr(const xacc::quantum::PauliOperator& in_pauliObservable)
+    {
+        ObservableExpr result;
+        auto gateRegistry = xacc::getIRProvider("quantum");
+        auto pauliObservable = const_cast<xacc::quantum::PauliOperator&>(in_pauliObservable);
+
+        for (auto termIter = pauliObservable.begin(); termIter != pauliObservable.end(); ++termIter)
+        {
+            std::vector<std::shared_ptr<Instruction>> termOpInstructions;
+            for (const auto& termOp : termIter->second.ops())
+            {
+                termOpInstructions.emplace_back(gateRegistry->createInstruction(termOp.second, { static_cast<size_t>(termOp.first) }));
+            }
+
+            result.emplace_back(ObservableTerm(termOpInstructions, termIter->second.coeff()));
+        } 
+        
+        return result;
+    }
+
     GateInstanceIdentifier::GateInstanceIdentifier(const std::string& in_gateName):
         m_gateName(in_gateName)
     {}
@@ -885,7 +907,7 @@ namespace tnqvm {
                 {
                     std::cout << "Don't have contraction sequence cached. Let ExaTN determine the contraction sequence. This may take a few minutes...\n";
                 }
-                
+
                 // Evaluate the tensor network, this will also determine the contraction sequence which we will cache. 
                 evaluateTensorNetwork();
                 
