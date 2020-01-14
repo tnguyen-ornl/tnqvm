@@ -80,6 +80,23 @@ namespace {
         auto randFunc = std::bind(std::uniform_real_distribution<double>(0, 1), std::mt19937(std::chrono::high_resolution_clock::now().time_since_epoch().count()));
         return randFunc();
     }
+
+    std::vector<size_t> getGroupKey(const tnqvm::ObservableTerm& in_term) 
+    {
+        std::vector<size_t> result;
+        
+        for (const auto& op : in_term.operators)
+        {
+            // We assume that these terms contain single-qubit operators (e.g. Pauli operators)
+            assert(op->bits().size() == 1);
+            result.emplace_back(op->bits()[0]);
+        }
+        
+        // Sort the vector:
+        std::sort(result.begin(), result.end());
+
+        return result;
+    };
 }
 
 namespace tnqvm {    
@@ -762,6 +779,19 @@ namespace tnqvm {
             return 0.0;
         }
 
+        // Grouping all the terms
+        size_t groupId = 0;
+        for (const auto& term: in_observableExpression)
+        {
+            const auto key = getGroupKey(term);
+           
+            if (m_groupMap.find(key) == m_groupMap.end())
+            {
+                m_groupMap.emplace(key, groupId);
+                groupId++;
+            }
+        }
+
         BaseInstructionVisitor* visitorCast = static_cast<BaseInstructionVisitor*>(this);
         this->initialize(in_buffer, -1);
         // Walk the IR tree, and visit each node
@@ -805,6 +835,9 @@ namespace tnqvm {
             return 1.0;
         }
         
+        const auto groupId = m_groupMap[getGroupKey(in_observableTerm)];
+        const bool hasContractionSeqCached = (m_cacheMap.find(groupId) != m_cacheMap.end());
+
         std::complex<double> result = 0.0;
         // Save/cache the tensor network
         const auto cachedTensor = m_tensorNetwork;
@@ -822,23 +855,54 @@ namespace tnqvm {
         applyInverse();        
         
         {
-            const auto start = std::chrono::steady_clock::now();
-            if(exatn::evaluateSync(m_tensorNetwork))
-            {
-                exatn::sync();
-                auto talsh_tensor = exatn::getLocalTensor(m_tensorNetwork.getTensor(0)->getName());
-                assert(talsh_tensor->getVolume() == 1);
-                const std::complex<double>* body_ptr;
-                if (talsh_tensor->getDataAccessHostConst(&body_ptr))
+            const auto evaluateTensorNetwork = [&](){
+                const auto start = std::chrono::steady_clock::now();
+                if(exatn::evaluateSync(m_tensorNetwork))
                 {
-                    result = *body_ptr;
-                }                
+                    exatn::sync();
+                    auto talsh_tensor = exatn::getLocalTensor(m_tensorNetwork.getTensor(0)->getName());
+                    assert(talsh_tensor->getVolume() == 1);
+                    const std::complex<double>* body_ptr;
+                    if (talsh_tensor->getDataAccessHostConst(&body_ptr))
+                    {
+                        result = *body_ptr;
+                    }                
+                }
+                const auto end = std::chrono::steady_clock::now();
+                std::cout << "Evaluate term elapsed time: " 
+                << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+                << " ms \n";      
+                std::cout << "Tensor network size: " << m_tensorNetwork.getNumTensors() << "\n";   
+
+            };           
+            
+            // If not have the cache or caching is disabled,
+            // do a full evaluation.
+            if (!hasContractionSeqCached || !m_enableContractionSeqCache)
+            {
+                // Debug:
+                if (!hasContractionSeqCached)
+                {
+                    std::cout << "Don't have contraction sequence cached. Let ExaTN determine the contraction sequence. This may take a few minutes...\n";
+                }
+                
+                // Evaluate the tensor network, this will also determine the contraction sequence which we will cache. 
+                evaluateTensorNetwork();
+                
+                // Done with the evaluation, export and cache the contraction sequence
+                const auto contractionSeq = m_tensorNetwork.exportContractionSequence();  
+                m_cacheMap.emplace(groupId, contractionSeq);
             }
-            const auto end = std::chrono::steady_clock::now();
-            std::cout << "Evaluate term elapsed time in seconds : " 
-            << std::chrono::duration_cast<std::chrono::seconds>(end - start).count()
-            << " secs \n";      
-            std::cout << "Tensor network size: " << m_tensorNetwork.getNumTensors() << "\n";      
+            else
+            {
+                // Debug:
+                std::cout << "Have contraction sequence cached. Import the cache sequence to ExaTN.\n";   
+                // Get the contraction sequence from the cache and import it to ExaTN
+                const auto contractionSeq = m_cacheMap[groupId];
+                m_tensorNetwork.importContractionSequence(contractionSeq);
+                // Evaluate after importing the contraction sequence
+                evaluateTensorNetwork();
+            }           
         }
 
         m_isAppendingCircuitGates = true;

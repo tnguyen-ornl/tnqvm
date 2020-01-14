@@ -303,6 +303,22 @@ namespace tnqvm {
        TensorNetwork m_qubitRegTensor;
        // Make the debug logger friend, e.g. retrieve internal states for logging purposes.
        friend class ExatnDebugLogger;
+
+
+        // Optimization: we group the observable terms which will have similar tensor contraction sequence:
+        // e.g. X0X1 and Z0Z1 will have the same contraction sequence,
+        // so that we can cache the *optimal* contraction sequence the first time we encounter those terms
+        // and use it in subsequent calculation.  
+        // Map from a sorted list of qubit indices to a group Id (each group has the same contraction sequence)
+        // Flag to enable/disable caching of contraction sequence 
+        // Note: this should always be on, unless we want to get baseline data.
+        bool m_enableContractionSeqCache = true;
+        using GroupKey = std::vector<size_t>;
+        using ContractionSeqGroupMap = std::map<GroupKey, size_t>;
+        using ContractionSeq =  std::list<exatn::numerics::ContrTriple>;
+        using ContractionSeqCacheMap = std::unordered_map<size_t, ContractionSeq>;
+        ContractionSeqGroupMap m_groupMap;
+        ContractionSeqCacheMap m_cacheMap;
     };
 } //end namespace tnqvm
 

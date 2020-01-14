@@ -87,9 +87,9 @@ int main (int argc, char** argv) {
 
         // Logging
         {
-            std::cout << "Trial#" << trialCount << ": Elapsed time in seconds : " 
-            << std::chrono::duration_cast<std::chrono::seconds>(end - start).count()
-            << " secs \n";
+            std::cout << "Trial#" << trialCount << ": Elapsed time: " 
+            << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+            << " ms \n";
             std::cout << "E(" << x[0];
             for (int i = 1; i < x.size(); ++i)
             {
@@ -113,8 +113,8 @@ int main (int argc, char** argv) {
 
     {
         std::cout << "Complete: number of trials = " << trialCount << ", total elapsed time = "
-                    << std::chrono::duration_cast<std::chrono::seconds>(end - start).count()
-                    << " secs \n";
+                    << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+                    << " ms \n";
     }
     
     buffer->addExtraInfo("opt-val", ExtraInfo(result.first));
