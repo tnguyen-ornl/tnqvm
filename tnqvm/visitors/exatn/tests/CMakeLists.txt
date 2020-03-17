@@ -3,6 +3,11 @@ include_directories(${XACC_ROOT}/include/gtest)
 
 add_executable(ExatnVisitorInternalTester ExatnVisitorInternalTester.cpp)
 #target_include_directories(ExatnVisitorInternalTester PRIVATE ${GTEST_INCLUDE_DIRS})
+if (APPLE)
+target_link_libraries(ExatnVisitorInternalTester PRIVATE ${XACC_ROOT}/lib/libgtest.dylib ${XACC_ROOT}/lib/libgtest_main.dylib tnqvm-exatn)
+else()
 target_link_libraries(ExatnVisitorInternalTester PRIVATE ${XACC_ROOT}/lib/libgtest.so ${XACC_ROOT}/lib/libgtest_main.so tnqvm-exatn)
+endif()
+
 add_test(NAME ExatnVisitorInternalTester COMMAND ExatnVisitorInternalTester)
 target_compile_features(ExatnVisitorInternalTester PRIVATE cxx_std_14)
