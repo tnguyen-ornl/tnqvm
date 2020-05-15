@@ -965,17 +965,76 @@ void ExatnMpsVisitor::applyTwoQubitGate(xacc::Instruction& in_gateInstruction)
     assert(q2Created);
     const bool q2Initialized = exatn::initTensorSync(q2TensorName, 0.0);
     assert(q2Initialized);
+    exatn::sync();
+    
+    const auto svdWrapper = [](const std::string& in_contract){
+        std::mutex m;
+        std::condition_variable cv;
+        bool retValue;
+
+        std::thread t([&]() 
+        {
+            retValue = exatn::decomposeTensorSVDLRSync(in_contract);
+            cv.notify_one();
+        });
+
+        t.detach();
+
+        {
+            std::unique_lock<std::mutex> l(m);
+            if(cv.wait_for(l, std::chrono::seconds(10)) == std::cv_status::timeout) 
+            {
+                throw std::runtime_error("Timeout");
+            }
+        }
+        return retValue;    
+    };
+    
+    const auto printTensorShape = [](const std::vector<long long unsigned int>& in_dims){
+        std::cout << "(";
+        for (const auto& dim: in_dims)
+        {
+            std::cout << dim << " ";
+        }
+        std::cout << ")\n";
+    };
 
     {
         auto start = std::chrono::system_clock::now();
         // SVD decomposition using the same pattern that was used to merge two tensors
-        const bool svdOk = exatn::decomposeTensorSVDLRSync(mergeContractionPattern);
-        assert(svdOk);
+        //const bool svdOk = exatn::decomposeTensorSVDLRSync(mergeContractionPattern);
+        bool timedout = false;
+        try 
+        {
+            const bool svdOk = svdWrapper(mergeContractionPattern);
+            assert(svdOk);
+        }
+        catch(std::runtime_error& e) 
+        {
+            std::cout << e.what() << std::endl;
+            timedout = true;
+        }
+
+        // Handle time-out
+        if(timedout)
+        {
+            std::cout << "[ERROR] Tensor SVD time-out!\n";
+            std::cout << in_gateInstruction.toString() << "\n";
+            std::cout << "Tensor SVD Pattern: " <<  mergeContractionPattern << "\n";
+            std::cout << "Merged Tensor: \n";
+            printTensorShape(mergedTensor->getDimExtents());
+            printTensorData(mergedTensor->getName());
+            std::cout << q1TensorName << "\n";
+            printTensorShape(q1Shape);
+            std::cout << q2TensorName << "\n";
+            printTensorShape(q2Shape);
+            // Terminate
+            throw;
+        }
         auto end = std::chrono::system_clock::now();
         getStatInstance("Decompose Tensor SVD").addSample(start, end);
     }
 
-#ifdef _DEBUG
     // Validate SVD tensors
     // TODO: this should be eventually removed once we are confident with the ExaTN numerical backend.
     {
@@ -997,16 +1056,18 @@ void ExatnMpsVisitor::applyTwoQubitGate(xacc::Instruction& in_gateInstruction)
             std::cout << q2TensorName << " norm = " << q2NormAfter << "\n";
             std::cout << "Tensor SVD Pattern: " <<  mergeContractionPattern << "\n";
             std::cout << "Merged Tensor: \n";
+            printTensorShape(mergedTensor->getDimExtents());
             printTensorData(mergedTensor->getName());
             std::cout << q1TensorName << "\n";
+            printTensorShape(q1Shape);
             printTensorData(q1TensorName);
             std::cout << q2TensorName << "\n";
+            printTensorShape(q2Shape);
             printTensorData(q2TensorName);
             // Crash in DEBUG to aid debugging.
             assert(false);
         }
     }
-#endif
 
     const bool mergedTensorDestroyed = exatn::destroyTensor(mergedTensor->getName());
     assert(mergedTensorDestroyed);
