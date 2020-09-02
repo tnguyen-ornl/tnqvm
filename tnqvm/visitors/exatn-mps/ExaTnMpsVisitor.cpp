@@ -625,94 +625,181 @@ void ExatnMpsVisitor::finalize()
         assert(broadcastOk);
     }
 
+    const bool computeBitstringAmpl = options.keyExists<std::vector<int>>("bitstring");
+
     // Only run bitstring sampling on root
     if (m_rank == 0)
     {
         // Update the tensor network to take into
         // account the updated tensors.
         rebuildTensorNetwork();
-        // Small-circuit case: just reconstruct the full wavefunction
-        if (m_buffer->size() < MAX_NUMBER_QUBITS_FOR_STATE_VEC) 
+        // Bitstring amplitude (Sycamore)
+        if (computeBitstringAmpl)
         {
-            // DEBUG:
-            // printStateVec();
-            exatn::TensorNetwork ket(*m_tensorNetwork);
-            ket.rename("MPSket");
-            const bool evaledOk = exatn::evaluateSync(*m_selfProcessGroup, ket);
-            assert(evaledOk); 
-            const auto tensorData = getTensorData(ket.getTensor(0)->getName());
-            // Simulate measurement by full tensor contraction (to get the state vector)
-            // we can also implement repetitive bit count sampling 
-            // (will require many contractions but don't require large memory allocation) 
-            // DEBUG:
-            // printStateVec();
-            // Print state vector norm:
-            const double norm = [&](){
-                double sum = 0;
-                for (const auto& val : tensorData)
-                {
-                    sum = sum + std::norm(val);
-                }
-                return sum;
-            }();
-            m_buffer->addExtraInfo("norm", norm);
-
-            if (!m_measureQubits.empty())
+            std::vector<int> bitString = options.get<std::vector<int>>("bitstring");
+            if (bitString.size() != m_buffer->size())
             {
-                const auto calcExpValueZ = [](const std::vector<size_t>& in_bits, const std::vector<std::complex<double>>& in_stateVec) {
-                    const auto hasEvenParity = [](size_t x, const std::vector<size_t>& in_qubitIndices) -> bool {
-                        size_t count = 0;
-                        for (const auto& bitIdx : in_qubitIndices)
-                        {
-                            if (x & (1ULL << bitIdx))
-                            {
-                                count++;
-                            }
-                        }
-                        return (count % 2) == 0;
-                    };
+                xacc::error("Bitstring size must match the number of qubits.");
+                return;
+            }
 
-
-                    double result = 0.0;
-                    for(uint64_t i = 0; i < in_stateVec.size(); ++i)
+            const auto constructBraNetwork = [&](const std::vector<int>& in_bitString){
+                int tensorIdCounter = 1;
+                exatn::TensorNetwork braTensorNet("bra");
+                // Create the qubit register tensor
+                for (int i = 0; i < in_bitString.size(); ++i) {
+                    const std::string braQubitName = "QB" + std::to_string(i);
+                    const bool created = exatn::createTensor(
+                        braQubitName, exatn::TensorElementType::COMPLEX64,
+                        exatn::TensorShape{2});
+                    assert(created);
+                    const auto bitVal = in_bitString[i];
+                    if (bitVal == 0)
                     {
-                        result += (hasEvenParity(i, in_bits) ? 1.0 : -1.0) * std::norm(in_stateVec[i]);
+                        // Bit = 0
+                        const bool initialized = exatn::initTensorData(braQubitName, std::vector<std::complex<double>>{{1.0, 0.0}, {0.0, 0.0}});
+                        assert(initialized);
+                    }
+                    else
+                    {
+                        // Bit = 1
+                        const bool initialized = exatn::initTensorData(braQubitName, std::vector<std::complex<double>>{{0.0, 0.0}, {1.0, 0.0}});
+                        assert(initialized);
                     }
 
-                    return result;
-                };
+                    braTensorNet.appendTensor(
+                    tensorIdCounter, exatn::getTensor(braQubitName),
+                    std::vector<std::pair<unsigned int, unsigned int>>{});
+                    tensorIdCounter++;
+                }
 
-                // No shots, just add exp-val-z
-                if (m_shotCount < 1)
-                {
-                    const double exp_val_z = calcExpValueZ(m_measureQubits, tensorData);
-                    m_buffer->addExtraInfo("exp-val-z", exp_val_z);
+                return braTensorNet;
+            };
+
+            auto braTensors = constructBraNetwork(bitString);
+            braTensors.conjugate();
+            auto combinedTensorNetwork = *m_tensorNetwork;
+            // Closing the tensor network with the bra
+            std::vector<std::pair<unsigned int, unsigned int>> pairings;
+            for (unsigned int i = 0; i < m_buffer->size(); ++i)
+            {
+                pairings.emplace_back(std::make_pair(i, i));
+            }
+            combinedTensorNetwork.appendTensorNetwork(std::move(braTensors), pairings);
+            combinedTensorNetwork.collapseIsometries();
+            combinedTensorNetwork.printIt();
+
+            std::complex<double> result = 0.0;
+            {
+                TNQVM_TELEMETRY_ZONE("exatn::evaluateSync", __FILE__, __LINE__);
+                std::cout << "SUBMIT TENSOR NETWORK FOR EVALUATION\n";
+                if (exatn::evaluateSync(combinedTensorNetwork)) {
+                    exatn::sync();
+                    auto talsh_tensor =
+                    exatn::getLocalTensor(combinedTensorNetwork.getTensor(0)->getName());
+                    assert(talsh_tensor->getVolume() == 1);
+                    const std::complex<double>* body_ptr;
+                    if (talsh_tensor->getDataAccessHostConst(&body_ptr)) {
+                        result = *body_ptr;
+                    }
                 }
-                else
-                {
-                    addMeasureBitStringProbability(m_measureQubits, tensorData, m_shotCount);
-                }
+            }
+
+            m_buffer->addExtraInfo("amplitude-real", result.real());
+            m_buffer->addExtraInfo("amplitude-imag", result.imag());
+    
+            // Destroy bra tensors
+            for (int i = 0; i < m_buffer->size(); ++i) {
+                const std::string braQubitName = "QB" + std::to_string(i);
+                const bool destroyed = exatn::destroyTensor(braQubitName);
+                assert(destroyed);
             }
         }
         else
         {
-            // Large circuit
-            if (!m_measureQubits.empty())
+            // Small-circuit case: just reconstruct the full wavefunction
+            if (m_buffer->size() < MAX_NUMBER_QUBITS_FOR_STATE_VEC) 
             {
-                std::cout << "Simulating bit string by MPS tensor contraction\n";
-                m_shotCount = (m_shotCount < 1) ? 1 : m_shotCount;
-                for (int i = 0; i < m_shotCount; ++i)
+                // DEBUG:
+                // printStateVec();
+                exatn::TensorNetwork ket(*m_tensorNetwork);
+                ket.rename("MPSket");
+                const bool evaledOk = exatn::evaluateSync(*m_selfProcessGroup, ket);
+                assert(evaledOk); 
+                const auto tensorData = getTensorData(ket.getTensor(0)->getName());
+                // Simulate measurement by full tensor contraction (to get the state vector)
+                // we can also implement repetitive bit count sampling 
+                // (will require many contractions but don't require large memory allocation) 
+                // DEBUG:
+                // printStateVec();
+                // Print state vector norm:
+                const double norm = [&](){
+                    double sum = 0;
+                    for (const auto& val : tensorData)
+                    {
+                        sum = sum + std::norm(val);
+                    }
+                    return sum;
+                }();
+                m_buffer->addExtraInfo("norm", norm);
+
+                if (!m_measureQubits.empty())
                 {
-                    const auto convertToBitString = [](const std::vector<uint8_t>& in_bitVec){
-                        std::string result;
-                        for (const auto& bit : in_bitVec)
+                    const auto calcExpValueZ = [](const std::vector<size_t>& in_bits, const std::vector<std::complex<double>>& in_stateVec) {
+                        const auto hasEvenParity = [](size_t x, const std::vector<size_t>& in_qubitIndices) -> bool {
+                            size_t count = 0;
+                            for (const auto& bitIdx : in_qubitIndices)
+                            {
+                                if (x & (1ULL << bitIdx))
+                                {
+                                    count++;
+                                }
+                            }
+                            return (count % 2) == 0;
+                        };
+
+
+                        double result = 0.0;
+                        for(uint64_t i = 0; i < in_stateVec.size(); ++i)
                         {
-                            result.append(std::to_string(bit));
+                            result += (hasEvenParity(i, in_bits) ? 1.0 : -1.0) * std::norm(in_stateVec[i]);
                         }
+
                         return result;
                     };
 
-                    m_buffer->appendMeasurement(convertToBitString(getMeasureSample(m_measureQubits)));
+                    // No shots, just add exp-val-z
+                    if (m_shotCount < 1)
+                    {
+                        const double exp_val_z = calcExpValueZ(m_measureQubits, tensorData);
+                        m_buffer->addExtraInfo("exp-val-z", exp_val_z);
+                    }
+                    else
+                    {
+                        addMeasureBitStringProbability(m_measureQubits, tensorData, m_shotCount);
+                    }
+                }
+            }
+            else
+            {
+                // Large circuit
+                if (!m_measureQubits.empty())
+                {
+                    std::cout << "Simulating bit string by MPS tensor contraction\n";
+                    m_shotCount = (m_shotCount < 1) ? 1 : m_shotCount;
+                    for (int i = 0; i < m_shotCount; ++i)
+                    {
+                        const auto convertToBitString = [](const std::vector<uint8_t>& in_bitVec){
+                            std::string result;
+                            for (const auto& bit : in_bitVec)
+                            {
+                                result.append(std::to_string(bit));
+                            }
+                            return result;
+                        };
+
+                        m_buffer->appendMeasurement(convertToBitString(getMeasureSample(m_measureQubits)));
+                    }
                 }
             }
         }
