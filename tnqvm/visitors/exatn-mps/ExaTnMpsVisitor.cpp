@@ -10,6 +10,8 @@
 #include <dlfcn.h>
 #endif
 
+bool tnqvm_timing_log_enabled = true;
+
 namespace {
 const std::vector<std::complex<double>> Q_ZERO_TENSOR_BODY{{1.0, 0.0}, {0.0, 0.0}};
 const std::vector<std::complex<double>> Q_ONE_TENSOR_BODY{{0.0, 0.0}, {1.0, 0.0}};  
@@ -2465,6 +2467,7 @@ void ExatnMpsVisitor::truncateSvdTensors(const std::string& in_leftTensorName, c
         // Debug: 
         // std::cout << "[DEBUG] Bond dim (" << in_leftTensorName << ", " << in_rightTensorName << "): " << bondDim << " -> " << newBondDim << "\n";
     }
+    xacc::info("Process [" + std::to_string(m_rank) + "]: Bond dimension: " + std::to_string(newBondDim));
 }
 
 #ifdef TNQVM_MPI_ENABLED

@@ -7,6 +7,7 @@
 int main(int argc, char **argv) 
 {
     xacc::Initialize();
+    xacc::set_verbose(true);
     // Options: 4, 5, 6, 8, 10, 12, 14, 16, 18, 20
     const int CIRCUIT_DEPTH = 4; 
     
@@ -27,7 +28,7 @@ int main(int argc, char **argv)
     auto qpu = xacc::getAccelerator("tnqvm", { 
         std::make_pair("tnqvm-visitor", "exatn-mps"),
         // Cap the bond dimension
-        std::make_pair("max-bond-dim", 256)
+        //std::make_pair("max-bond-dim", 256)
     });
 
     // Allocate a register of 53 qubits
@@ -38,6 +39,7 @@ int main(int argc, char **argv)
     auto ir = xasmCompiler->compile(xasmSrcStr, qpu);
     auto program = ir->getComposites()[0];
     qpu->execute(qubitReg, program);
+    qubitReg->print();
     xacc::Finalize();
     return 0;
 } 
