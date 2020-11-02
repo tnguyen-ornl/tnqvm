@@ -714,10 +714,11 @@ void ExatnMpsVisitor::finalize()
         else
         {
             // Large circuit
-            // std::cout << "Final norm: " << stateVecNorm << "\n";
+            xacc::info("Final norm: " + std::to_string(stateVecNorm));
             // Calculates the amplitude of a specific bitstring
             // or the partial (slice) wave function.
             // The open indices are denoted by "-1" value.
+            const double normFactor = 1.0 / std::sqrt(stateVecNorm);
             if (options.keyExists<std::vector<int>>("bitstring"))
             {
                 std::vector<int> bitString = options.get<std::vector<int>>("bitstring");
@@ -727,8 +728,15 @@ void ExatnMpsVisitor::finalize()
                     return;
                 }
 
-                std::vector<std::complex<double>> waveFuncSlice = computeWaveFuncSlice(*m_tensorNetwork, bitString, exatn::getCurrentProcessGroup()); 
+                std::vector<std::complex<double>> waveFuncSlice =
+                    computeWaveFuncSlice(*m_tensorNetwork, bitString,
+                                         exatn::getCurrentProcessGroup());
                 assert(!waveFuncSlice.empty());
+                // Renormalize: 
+                std::transform(waveFuncSlice.begin(), waveFuncSlice.end(),
+                               waveFuncSlice.begin(),
+                               std::bind(std::multiplies<std::complex<double>>(),
+                                         std::placeholders::_1, normFactor));
                 if (waveFuncSlice.size() == 1)
                 {
                     m_buffer->addExtraInfo("amplitude-real", waveFuncSlice[0].real());
@@ -1906,34 +1914,34 @@ void ExatnMpsVisitor::applyTwoQubitGate(xacc::Instruction& in_gateInstruction)
 
         // Validate SVD tensors
         // TODO: this should be eventually removed once we are confident with the ExaTN numerical backend.
-        {
-            // Validate SVD tensors
-            // TODO: this should be eventually removed once we are confident with the ExaTN numerical backend.
-            const auto calcMpsTensorNorm = [](const std::string& in_tensorName) {
-                double sumNorm = 0.0;
-                const bool normOk = exatn::computeNorm2Sync(in_tensorName, sumNorm);
-                return sumNorm;
-            };
+        // {
+        //     // Validate SVD tensors
+        //     // TODO: this should be eventually removed once we are confident with the ExaTN numerical backend.
+        //     const auto calcMpsTensorNorm = [](const std::string& in_tensorName) {
+        //         double sumNorm = 0.0;
+        //         const bool normOk = exatn::computeNorm2Sync(in_tensorName, sumNorm);
+        //         return sumNorm;
+        //     };
 
-            const double q1NormAfter = calcMpsTensorNorm(q1TensorName);
-            const double q2NormAfter = calcMpsTensorNorm(q2TensorName);
-            if (std::fabs(q1NormAfter) < 1e-3 || std::fabs(q2NormAfter) < 1e-3)
-            {
-                std::cout << "[ERROR] Tensor norm validation failed!\n";
-                std::cout << in_gateInstruction.toString() << "\n";
-                std::cout << q1TensorName << " norm = " << q1NormAfter << "\n";
-                std::cout << q2TensorName << " norm = " << q2NormAfter << "\n";
-                std::cout << "Tensor SVD Pattern: " <<  mergeContractionPattern << "\n";
-                std::cout << "Merged Tensor: \n";
-                printTensorData(mergedTensor->getName());
-                std::cout << q1TensorName << "\n";
-                printTensorData(q1TensorName);
-                std::cout << q2TensorName << "\n";
-                printTensorData(q2TensorName);
-                // Crash in DEBUG to aid debugging.
-                assert(false);
-            }
-        }
+        //     const double q1NormAfter = calcMpsTensorNorm(q1TensorName);
+        //     const double q2NormAfter = calcMpsTensorNorm(q2TensorName);
+        //     if (std::fabs(q1NormAfter) < 1e-3 || std::fabs(q2NormAfter) < 1e-3)
+        //     {
+        //         std::cout << "[ERROR] Tensor norm validation failed!\n";
+        //         std::cout << in_gateInstruction.toString() << "\n";
+        //         std::cout << q1TensorName << " norm = " << q1NormAfter << "\n";
+        //         std::cout << q2TensorName << " norm = " << q2NormAfter << "\n";
+        //         std::cout << "Tensor SVD Pattern: " <<  mergeContractionPattern << "\n";
+        //         std::cout << "Merged Tensor: \n";
+        //         printTensorData(mergedTensor->getName());
+        //         std::cout << q1TensorName << "\n";
+        //         printTensorData(q1TensorName);
+        //         std::cout << q2TensorName << "\n";
+        //         printTensorData(q2TensorName);
+        //         // Crash in DEBUG to aid debugging.
+        //         assert(false);
+        //     }
+        // }
         
         const auto buildTensorMap = [&](){
             std::map<std::string, std::shared_ptr<exatn::Tensor>> tensorMap;
@@ -2610,10 +2618,9 @@ double ExatnMpsVisitor::computeStateVectorNorm(const exatn::numerics::TensorNetw
         pairings.emplace_back(std::make_pair(i, i));
     }
     combinedTensorNetwork.appendTensorNetwork(std::move(braTensors), pairings);
-    combinedTensorNetwork.printIt();
+    // combinedTensorNetwork.printIt();
     // For MPS norm calculation, we know the optimal seq, hence just import it.
     std::vector<unsigned int> contractSeq;
-
     // 1-2-3-4
     // | | | |
     // 5-6-7-8
@@ -2671,7 +2678,7 @@ double ExatnMpsVisitor::computeStateVectorNorm(const exatn::numerics::TensorNetw
         norm = *body_ptr;
       }
     }
-    std::cout << "Norm: " << norm.real() << " , " << norm.imag() << "\n";
+    // std::cout << "Norm: " << norm.real() << " , " << norm.imag() << "\n";
     return norm.real();
 }
 }
