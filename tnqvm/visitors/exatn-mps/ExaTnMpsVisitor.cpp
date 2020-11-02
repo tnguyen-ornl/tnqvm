@@ -647,7 +647,7 @@ void ExatnMpsVisitor::finalize()
         // account the updated tensors.
         rebuildTensorNetwork();
 
-        // const auto stateVecNorm = computeStateVectorNorm(*m_tensorNetwork, exatn::getCurrentProcessGroup());
+        const auto stateVecNorm = computeStateVectorNorm(*m_tensorNetwork, exatn::getCurrentProcessGroup());
         // Small-circuit case: just reconstruct the full wavefunction
         if (m_buffer->size() < MAX_NUMBER_QUBITS_FOR_STATE_VEC) 
         {
@@ -2610,6 +2610,56 @@ double ExatnMpsVisitor::computeStateVectorNorm(const exatn::numerics::TensorNetw
         pairings.emplace_back(std::make_pair(i, i));
     }
     combinedTensorNetwork.appendTensorNetwork(std::move(braTensors), pairings);
+    combinedTensorNetwork.printIt();
+    // For MPS norm calculation, we know the optimal seq, hence just import it.
+    std::vector<unsigned int> contractSeq;
+
+    // 1-2-3-4
+    // | | | |
+    // 5-6-7-8
+    // The best contraction sequence is: 
+    // 9,1,5,   10,2,9,    11,6,10,    12,3,11,    13,7,12,    14,4,13,    0,8,14
+    // The result tensor counter starts at 2 * num_qubits (qubits + conjugates)
+    // The triples are: {result_tensor_id,  left_input_tensor_id,  right_input_tensor_id}
+
+    unsigned int resultTensorCounter = 2 * m_buffer->size() + 1;
+    // First layer:
+    contractSeq.emplace_back(resultTensorCounter++);
+    contractSeq.emplace_back(1);
+    contractSeq.emplace_back(m_buffer->size() + 1);
+    // Middle layers:
+    for (int i = 2; i < m_buffer->size(); ++i) 
+    {
+        // Upper tensor:
+        contractSeq.emplace_back(resultTensorCounter);
+        contractSeq.emplace_back(i);
+        contractSeq.emplace_back(resultTensorCounter - 1);
+        resultTensorCounter++;
+        // Lower tensor (conjugate):
+        contractSeq.emplace_back(resultTensorCounter);
+        contractSeq.emplace_back(i + m_buffer->size());
+        contractSeq.emplace_back(resultTensorCounter - 1);
+        resultTensorCounter++;
+    }
+
+    // Last layer:
+    contractSeq.emplace_back(resultTensorCounter);
+    contractSeq.emplace_back(m_buffer->size());
+    contractSeq.emplace_back(resultTensorCounter - 1);
+    resultTensorCounter++;
+    // Final result tensor = 0
+    contractSeq.emplace_back(0);
+    contractSeq.emplace_back(m_buffer->size() * 2);
+    contractSeq.emplace_back(resultTensorCounter - 1);
+    // std::cout << "Seq: ";
+    // for (int i = 0; i < contractSeq.size(); ++i) {
+    //     if (i % 3 == 0) {
+    //         std::cout << "\n";
+    //     }
+    //     std::cout << contractSeq[i] << " ";
+    // }
+
+    combinedTensorNetwork.importContractionSequence(contractSeq);
     std::complex<double> norm;
     if (exatn::evaluateSync(in_processGroup, combinedTensorNetwork)) {
       exatn::sync();
@@ -2621,7 +2671,7 @@ double ExatnMpsVisitor::computeStateVectorNorm(const exatn::numerics::TensorNetw
         norm = *body_ptr;
       }
     }
-    // std::cout << "Norm: " << norm.real() << " , " << norm.imag() << "\n";
+    std::cout << "Norm: " << norm.real() << " , " << norm.imag() << "\n";
     return norm.real();
 }
 }
